@@ -25,6 +25,7 @@ Classification and company-association operations use the existing ChemNet domai
 chemnet-data-pipeline affiliations --project-root C:\path\to\chemnet_project --data-dir C:\path\to\chemnet_project\data
 chemnet-data-pipeline companies --project-root C:\path\to\chemnet_project --data-dir C:\path\to\chemnet_project\data
 chemnet-data-pipeline company-associations --project-root C:\path\to\chemnet_project --data-dir C:\path\to\chemnet_project\data
+chemnet-data-pipeline funding-tables --project-root C:\path\to\chemnet_project --data-dir C:\path\to\chemnet_project\data
 ```
 
-These operations require the Django project's Python dependencies. The CSV generation and filtering commands only require pandas.
+`funding-tables` builds the all-sources table plus the government, university, foundation, company, and unknown category CSVs. These domain-aware operations require the Django project's Python dependencies. The yearly CSV generation and filtering commands only require pandas.

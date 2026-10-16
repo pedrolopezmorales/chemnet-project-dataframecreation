@@ -42,6 +42,7 @@ def _network_helpers():
             sys.path.insert(0, root)
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "chemnet_site.settings")
+    os.environ.setdefault("CHEMNET_DATA_PIPELINE_SKIP_STARTUP_TABLES", "1")
     try:
         import django
 
@@ -409,3 +410,128 @@ def create_company_assoc_dataframe(data_dir: str | Path | None = None) -> pd.Dat
     company_assoc.to_csv(output_path, index=False)
     print(f"Saved comparing_fundingsources.csv ({len(company_assoc)} rows)")
     return company_assoc
+
+
+FUNDING_TABLE_CATEGORIES = ("all", "government", "university", "foundation", "company", "unknown")
+
+
+def _normalize_funding_table_category(category: str | None) -> str:
+    normalized = str(category or "all").strip().lower()
+    return normalized if normalized in FUNDING_TABLE_CATEGORIES else "all"
+
+
+def _is_placeholder_funding_source(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"not found", "not found."}
+
+
+def _compute_funding_source_counts(helpers: Any) -> dict[str, int]:
+    if "Funding Sources" not in helpers.main.columns:
+        return {}
+    counts = (
+        helpers.main["Funding Sources"]
+        .dropna()
+        .astype(str)
+        .str.split(r"[;]")
+        .explode()
+        .astype(str)
+        .str.strip()
+    )
+    counts = counts[(counts != "") & ~counts.map(_is_placeholder_funding_source)]
+    return counts.value_counts().to_dict()
+
+
+def create_funding_source_dataframe(
+    chem_limit: int = 5,
+    top_n: int | None = 50,
+    category: str = "all",
+    counts_override: dict[str, int] | None = None,
+    auto_build_category_csvs: bool = True,
+    data_dir: str | Path | None = None,
+    helpers: Any = None,
+) -> pd.DataFrame:
+    """Build one funding-source table using the existing ChemNet domain helpers."""
+    helpers = helpers or _network_helpers()
+    category_key = _normalize_funding_table_category(category)
+    company_assoc_names = set(helpers.company_assoc["Company"].dropna().astype(str).str.strip())
+    source_counts = counts_override
+    if source_counts is None:
+        source_counts = helpers.company_counts or _compute_funding_source_counts(helpers)
+
+    sorted_companies = sorted(source_counts.items(), key=lambda item: item[1], reverse=True)
+    top_companies = []
+    for name, count in sorted_companies:
+        if _is_placeholder_funding_source(name) or name not in company_assoc_names:
+            continue
+        if category_key != "all":
+            classification = str(helpers.company_classification_dict.get(name, "Unknown")).strip().lower()
+            if (classification or "unknown") != category_key:
+                continue
+        top_companies.append((name, count))
+        if top_n is not None and len(top_companies) >= max(1, int(top_n)):
+            break
+
+    rows = []
+    for index, (company, study_count) in enumerate(top_companies, start=1):
+        print(f"Processing {index}/{len(top_companies)}: {company}")
+        try:
+            classification = helpers.company_classification_dict.get(company, "Unknown")
+            connections = helpers.show_company_connections(company)
+            chemicals = connections.get("Chemicals", []) if isinstance(connections, dict) else []
+            chemicals = sorted(chemicals or [], key=helpers.count_key, reverse=True)
+            wiki = helpers.get_wikipedia_description_fundingsource(company)
+            rows.append({
+                "company": company,
+                "study_count": int(study_count),
+                "classification": classification,
+                "top_chemicals": ";".join(chemicals[:chem_limit]),
+                "description": wiki.get("description", "") if isinstance(wiki, dict) else "",
+                "wiki_url": wiki.get("url", "") if isinstance(wiki, dict) else "",
+            })
+        except Exception as exc:
+            print(f"Error processing {company}: {exc}")
+            rows.append({
+                "company": company,
+                "study_count": int(study_count),
+                "classification": helpers.company_classification_dict.get(company, "Unknown"),
+                "top_chemicals": "",
+                "description": "",
+                "wiki_url": "",
+            })
+
+    result = pd.DataFrame(rows)
+    if auto_build_category_csvs and category_key == "all" and counts_override is None:
+        create_funding_source_category_dataframes(
+            top_n=top_n,
+            source_counts=source_counts,
+            data_dir=data_dir,
+            helpers=helpers,
+        )
+    return result
+
+
+def create_funding_source_category_dataframes(
+    top_n: int | None = 50,
+    source_counts: dict[str, int] | None = None,
+    data_dir: str | Path | None = None,
+    helpers: Any = None,
+) -> dict[str, str]:
+    """Create all funding-source category CSVs from raw study-level counts."""
+    helpers = helpers or _network_helpers()
+    source_counts = source_counts if source_counts is not None else _compute_funding_source_counts(helpers)
+    output_dir = Path(data_dir) if data_dir is not None else Path(helpers.settings.BASE_DIR) / "data"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    created_files = {}
+    for category in FUNDING_TABLE_CATEGORIES:
+        rows = create_funding_source_dataframe(
+            top_n=top_n,
+            category=category,
+            counts_override=source_counts,
+            auto_build_category_csvs=False,
+            data_dir=output_dir,
+            helpers=helpers,
+        )
+        output_path = output_dir / f"funding_source_table_{category}.csv"
+        rows.to_csv(output_path, index=False)
+        created_files[category] = str(output_path)
+    return created_files

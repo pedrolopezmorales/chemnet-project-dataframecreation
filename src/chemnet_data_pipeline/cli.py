@@ -10,6 +10,7 @@ from .pipeline import (
     create_company_assoc_dataframe,
     create_company_classifications,
     create_filtered_main_dataframe,
+    create_funding_source_category_dataframes,
     create_main_dataframe,
 )
 
@@ -18,7 +19,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build and clean ChemNet dataframes.")
     parser.add_argument(
         "operation",
-        choices=["main", "filtered", "affiliations", "companies", "company-associations"],
+        choices=[
+            "main",
+            "filtered",
+            "affiliations",
+            "companies",
+            "company-associations",
+            "funding-tables",
+        ],
     )
     parser.add_argument(
         "--data-dir",
@@ -47,5 +55,7 @@ def main() -> None:
         create_affiliation_classifications(data_dir=args.data_dir)
     elif args.operation == "companies":
         create_company_classifications(data_dir=args.data_dir)
-    else:
+    elif args.operation == "company-associations":
         create_company_assoc_dataframe(data_dir=args.data_dir)
+    else:
+        create_funding_source_category_dataframes(data_dir=args.data_dir)
