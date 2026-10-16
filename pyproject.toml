@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chemnet-data-pipeline"
+version = "0.1.0"
+description = "Dataframe creation, normalization, filtering, and refresh utilities for ChemNet."
+requires-python = ">=3.10"
+dependencies = ["pandas>=1.5"]
+
+[project.scripts]
+chemnet-data-pipeline = "chemnet_data_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
